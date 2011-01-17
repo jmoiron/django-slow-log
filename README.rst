@@ -13,7 +13,7 @@ installing/usage
 To use, add to your ``MIDDLEWARE_CLASSES`` in settings.py::
 
     MIDDLEWARE_CLASSES = (
-        'django_slow_log.middleware.DjangoSlowLog',
+        'django_slow_log.middleware.SlowLogMiddleware',
         ...
     )
 
