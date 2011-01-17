@@ -157,8 +157,6 @@ class SlowLogMiddleware(object):
         time_delta = end['time'] - start['time']
         mem_delta = end['memory'] - start['memory']
         load_delta = end['load'] - start['load']
-        if settings.DEBUG:
-            queries = len(connection.queries)
         info = [time.strftime('%Y/%m/%d %H:%M:%S'),
                 '<%s>' % self.pidstr,
                 '[%s]' % status_code,
@@ -167,6 +165,9 @@ class SlowLogMiddleware(object):
                 path,
                 bytes_to_string(mem_delta),
                 '%0.2fl' % load_delta]
+        if settings.DEBUG:
+            queries = len(connection.queries)
+            info.append('%dq' % queries)
         self.log(' '.join(info))
 
     def process_response(self, request, response):

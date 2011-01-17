@@ -21,7 +21,13 @@ setup(
     long_description=open('README.rst').read(),
     # Get strings from http://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 4 - Beta',
+        'Framework :: Django',
+        'Topic :: Internet :: WWW/HTTP',
+        'Topic :: Internet :: Log Analysis',
+        'License :: OSI Approved :: MIT License',
+        'Intended Audience :: Developers',
+        'Operating System :: POSIX',
     ],
     keywords='django profiling slow request',
     author='Jason Moiron',
@@ -30,7 +36,6 @@ setup(
     license='MIT',
     packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
     include_package_data=True,
-    zip_safe=False,
     test_suite="tests",
     install_requires=[
         'django',
