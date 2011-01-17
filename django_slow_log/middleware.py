@@ -12,7 +12,7 @@ import time
 import logging
 
 def open_file(path):
-    if not os.path.exists(path):
+    if not os.path.exists(os.path.split(path)[0]):
         os.makedirs(os.path.split(path)[0])
     return open(path, 'a')
 
