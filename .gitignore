@@ -1,0 +1,8 @@
+tags
+*.pyc
+*.swp
+*.swo
+*.egg-info*
+docs/_build*
+build
+dist
