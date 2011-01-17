@@ -13,7 +13,7 @@ import logging
 
 def open_file(path):
     if not os.path.exists(path):
-        os.mkdirs(os.path.split(path)[0])
+        os.makedirs(os.path.split(path)[0])
     return open(path, 'a')
 
 def to_bytes(string):
