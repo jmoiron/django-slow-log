@@ -6,7 +6,11 @@
 from setuptools import setup, find_packages
 import sys, os
 
-version = '0.1'
+try:
+    import django_slow_log
+    version = '.'.join(map(str, django_slow_log.VERSION))
+except:
+    version = '0.1'
 
 # some trove classifiers:
 
