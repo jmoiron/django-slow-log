@@ -45,7 +45,7 @@ class LoadAverage(object):
     """Fetch the current load average.  Uses /proc/loadavg in linux, falls back
     to executing the `uptime` command, which is 240x slower than reading
     from proc."""
-    matcher = re.compile("load average:\s*([.\d]+),\s*([.\d]+),\s*([.\d]+)")
+    matcher = re.compile("load average[s]?:\s*([.\d]+)[,]?\s*([.\d]+)[,]?\s*([.\d]+)")
     uptime_fallback = False
 
     def __init__(self):
