@@ -28,3 +28,12 @@ settings
   path of the log file (default: ``/var/log/django-slow.log``)
 
 
+celery
+======
+
+``OFFLOAD_SLOW_LOG``
+  Defaults to ``False``. When set to ``True``, Django Slow Log will attempt to offload the log call to Celery.
+  Celery must be installed to use this option. See <a href="http://celeryproject.org" target="_blank">http://celeryproject.org</a>.
+
+  ``CELERY_IMPORTS``
+  add ``django_slow_log.middleware`` to your ``CELERY_IMPORTS`` config tuple for ``djcelery``.
