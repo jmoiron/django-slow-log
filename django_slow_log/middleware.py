@@ -184,12 +184,12 @@ class SlowLogMiddleware(object):
 
     def process_response(self, request, response):
         try: self._response(request, response)
-        except Exception, e: raise e
+        except: pass
         return response
 
     def process_exception(self, request, exception):
         try: self._response(request, exception=exception)
-        except Exception, e: raise e
+        except: pass
 
     def log(self, string):
         if self.disabled and not self.print_only: return
