@@ -3,8 +3,17 @@
 
 """Django slow log middleware."""
 
+from django_slow_log.exceptions import SlowLogConfigurationError
+
 from django.conf import settings
 from django.db import connection
+celery_enabled = True
+try:
+    from celery.decorators import task
+except ImportError:
+    if getattr(settings, 'OFFLOAD_SLOW_LOG', False):
+        raise SlowLogConfigurationError('Celery needs to be installed to use the offloader')
+    celery_enabled = False
 
 import os
 import re
@@ -168,16 +177,19 @@ class SlowLogMiddleware(object):
         if settings.DEBUG:
             queries = len(connection.queries)
             info.append('%dq' % queries)
-        self.log(' '.join(info))
+        if celery_enabled and getattr(settings, 'OFFLOAD_SLOW_LOG', False):
+            offload_slow_logging.delay(' '.join(info))
+        else:
+            self.log(' '.join(info))
 
     def process_response(self, request, response):
         try: self._response(request, response)
-        except: pass
+        except Exception, e: raise e
         return response
 
     def process_exception(self, request, exception):
         try: self._response(request, exception=exception)
-        except: pass
+        except Exception, e: raise e
 
     def log(self, string):
         if self.disabled and not self.print_only: return
@@ -187,3 +199,8 @@ class SlowLogMiddleware(object):
         self.fileobj.write(string + '\n')
         self.fileobj.flush()
 
+if celery_enabled:
+    @task
+    def offload_slow_logging(string):
+        slow_log_obj = SlowLogMiddleware()
+        slow_log_obj.log(string)
