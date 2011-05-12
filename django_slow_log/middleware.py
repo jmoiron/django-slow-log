@@ -137,7 +137,7 @@ class SlowLogMiddleware(object):
                 cls.disabled = True
         if not getattr(self, 'pid', None):
             self.pid = os.getpid()
-            self.pidstr = str(self.pid).ljust(5)
+            self.pidstr = str(self.pid)
             self.memory = MemoryStatus(self.pid)
         if not getattr(self, 'loadavg', None):
             self.loadavg = LoadAverage()
@@ -178,9 +178,9 @@ class SlowLogMiddleware(object):
             queries = len(connection.queries)
             info.append('%dq' % queries)
         if celery_enabled and getattr(settings, 'OFFLOAD_SLOW_LOG', False):
-            offload_slow_logging.delay(' '.join(info))
+            offload_slow_logging.delay('\t'.join(info))
         else:
-            self.log(' '.join(info))
+            self.log('\t'.join(info))
 
     def process_response(self, request, response):
         try: self._response(request, response)
