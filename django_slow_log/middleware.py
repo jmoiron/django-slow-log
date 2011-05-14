@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""Django slow log middleware."""
+import os
+import re
+import time
+import logging
+from datetime import datetime
 
 from django_slow_log.exceptions import SlowLogConfigurationError
 
 from django.conf import settings
 from django.db import connection
+from django.core import urlresolvers
 celery_enabled = True
 try:
     from celery.decorators import task
@@ -15,15 +19,8 @@ except ImportError:
         raise SlowLogConfigurationError('Celery needs to be installed to use the offloader')
     celery_enabled = False
 
-import os
-import re
-import time
-import logging
+from django_slow_log.models import Record
 
-def open_file(path):
-    if not os.path.exists(os.path.split(path)[0]):
-        os.makedirs(os.path.split(path)[0])
-    return open(path, 'a')
 
 def to_bytes(string):
     """Converts a string with a human-readable byte size to a number of
@@ -130,11 +127,6 @@ class SlowLogMiddleware(object):
         cls = SlowLogMiddleware
         self.print_only = getattr(settings, 'DJANGO_SLOW_LOG_PRINT_ONLY', False)
         self.path = getattr(settings, 'DJANGO_SLOW_LOG_LOCATION', cls.path)
-        if not getattr(cls, 'fileobj', None) and not self.print_only:
-            try:self.fileobj = open_file(self.path)
-            except Exception, e:
-                logging.error("Slow log path or file `%s` not accessible (%s)" % (self.path, str(e)))
-                cls.disabled = True
         if not getattr(self, 'pid', None):
             self.pid = os.getpid()
             self.pidstr = str(self.pid)
@@ -159,6 +151,8 @@ class SlowLogMiddleware(object):
             pass
 
     def _response(self, request, response=None, exception=None):
+        if not celery_enabled or not getattr(settings, 'OFFLOAD_SLOW_LOG', False):
+            return
         end = self._get_stats()
         start = self.start
         path = 'http://' + request.get_host() + request.get_full_path()
@@ -166,21 +160,23 @@ class SlowLogMiddleware(object):
         time_delta = end['time'] - start['time']
         mem_delta = end['memory'] - start['memory']
         load_delta = end['load'] - start['load']
-        info = [time.strftime('%Y/%m/%d %H:%M:%S'),
-                '<%s>' % self.pidstr,
-                '[%s]' % status_code,
-                '%0.2fs' % time_delta,
-                request.META['REQUEST_METHOD'],
-                path,
-                bytes_to_string(mem_delta),
-                '%0.2fl' % load_delta]
-        if settings.DEBUG:
-            queries = len(connection.queries)
-            info.append('%dq' % queries)
-        if celery_enabled and getattr(settings, 'OFFLOAD_SLOW_LOG', False):
-            offload_slow_logging.delay('\t'.join(info))
-        else:
-            self.log('\t'.join(info))
+        view = urlresolvers.resolve(request.get_full_path())[0]
+        info = {
+            'pid': self.pidstr,
+            'status_code': status_code,
+            'time_delta': time_delta,
+            'request_method': request.META['REQUEST_METHOD'],
+            'path': path,
+            'django_view': '%s.%s' % (view.__module__, view.__name__),
+            'memory_delta': mem_delta,
+            'load_delta': load_delta,
+            'queries': len(connection.queries),
+            'response_started': datetime.now(),
+        }
+        try:
+            offload_slow_logging.delay(info)
+        except:
+            pass
 
     def process_response(self, request, response):
         try: self._response(request, response)
@@ -191,16 +187,8 @@ class SlowLogMiddleware(object):
         try: self._response(request, exception=exception)
         except: pass
 
-    def log(self, string):
-        if self.disabled and not self.print_only: return
-        if self.print_only:
-            print string
-            return
-        self.fileobj.write(string + '\n')
-        self.fileobj.flush()
-
 if celery_enabled:
     @task
-    def offload_slow_logging(string):
-        slow_log_obj = SlowLogMiddleware()
-        slow_log_obj.log(string)
+    def offload_slow_logging(info):
+        record = Record(**info)
+        record.save()
