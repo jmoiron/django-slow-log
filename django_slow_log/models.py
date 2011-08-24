@@ -12,4 +12,5 @@ class Record(models.Model):
     memory_delta = models.IntegerField()
     load_delta = models.FloatField()
     queries = models.IntegerField()
+    hostname = models.CharField(max_length=255, null=True, blank=True)
     response_started = models.DateTimeField()

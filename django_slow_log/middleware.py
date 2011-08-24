@@ -3,7 +3,7 @@
 import os
 import re
 import time
-import logging
+import socket
 from datetime import datetime
 
 from django_slow_log.exceptions import SlowLogConfigurationError
@@ -16,7 +16,8 @@ try:
     from celery.decorators import task
 except ImportError:
     if getattr(settings, 'OFFLOAD_SLOW_LOG', False):
-        raise SlowLogConfigurationError('Celery needs to be installed to use the offloader')
+        raise SlowLogConfigurationError(
+                'Celery needs to be installed to use the offloader')
     celery_enabled = False
 
 from django_slow_log.models import Record
@@ -32,6 +33,7 @@ def to_bytes(string):
         num <<= powers[units.lower()]
     return num
 
+
 def bytes_to_string(bytes):
     """Converts number of bytes to a string.  Based on old code here:
         http://dev.jmoiron.net/hg/weechat-plugins/file/tip/mp3.py
@@ -41,17 +43,21 @@ def bytes_to_string(bytes):
     """
     units = ['B', 'kB', 'mB', 'gB', 'tB']
     negate = bytes < 0
-    if negate: bytes = -bytes
+    if negate:
+        bytes = -bytes
     factor = 0
-    while bytes/(1024.0**(factor+1)) >= 1:
+    while bytes / (1024.0 ** (factor + 1)) >= 1:
         factor += 1
-    return '%s%0.1f %s' % ('-' if negate else '', bytes/(1024.0**factor), units[factor])
+    return '%s%0.1f %s' % \
+            ('-' if negate else '', bytes / (1024.0 ** factor), units[factor])
+
 
 class LoadAverage(object):
     """Fetch the current load average.  Uses /proc/loadavg in linux, falls back
     to executing the `uptime` command, which is 240x slower than reading
     from proc."""
-    matcher = re.compile("load average[s]?:\s*([.\d]+)[,]?\s*([.\d]+)[,]?\s*([.\d]+)")
+    matcher = re.compile(
+            "load average[s]?:\s*([.\d]+)[,]?\s*([.\d]+)[,]?\s*([.\d]+)")
     uptime_fallback = False
 
     def __init__(self):
@@ -108,7 +114,6 @@ class MemoryStatus(object):
         except:
             return self.ps_fallback_usage()
 
-
     def ps_fallback_usage(self):
         """Memory usage for the given PID using ps instead of proc."""
         from subprocess import Popen, PIPE
@@ -119,13 +124,15 @@ class MemoryStatus(object):
         vsize_in_kb = process_line[5] + ' kB'
         return to_bytes(vsize_in_kb)
 
+
 class SlowLogMiddleware(object):
     path = '/var/log/django-slow.log'
     disabled = False
 
     def __init__(self):
         cls = SlowLogMiddleware
-        self.print_only = getattr(settings, 'DJANGO_SLOW_LOG_PRINT_ONLY', False)
+        self.print_only = getattr(
+                settings, 'DJANGO_SLOW_LOG_PRINT_ONLY', False)
         self.path = getattr(settings, 'DJANGO_SLOW_LOG_LOCATION', cls.path)
         if not getattr(self, 'pid', None):
             self.pid = os.getpid()
@@ -136,9 +143,9 @@ class SlowLogMiddleware(object):
 
     def _get_stats(self):
         return {
-            'time' : time.time(),
-            'memory' : self.memory.usage(),
-            'load' : self.loadavg.current()[0],
+            'time': time.time(),
+            'memory': self.memory.usage(),
+            'load': self.loadavg.current()[0],
         }
 
     def process_request(self, request):
@@ -151,7 +158,8 @@ class SlowLogMiddleware(object):
             pass
 
     def _response(self, request, response=None, exception=None):
-        if not celery_enabled or not getattr(settings, 'OFFLOAD_SLOW_LOG', False):
+        if not celery_enabled or not \
+            getattr(settings, 'OFFLOAD_SLOW_LOG', False):
             return
         end = self._get_stats()
         start = self.start
@@ -161,6 +169,7 @@ class SlowLogMiddleware(object):
         mem_delta = end['memory'] - start['memory']
         load_delta = end['load'] - start['load']
         view = urlresolvers.resolve(request.get_full_path())[0]
+        hostname = socket.gethostname()
         info = {
             'pid': self.pidstr,
             'status_code': status_code,
@@ -171,6 +180,7 @@ class SlowLogMiddleware(object):
             'memory_delta': mem_delta,
             'load_delta': load_delta,
             'queries': len(connection.queries),
+            'hostname': hostname,
             'response_started': datetime.now(),
         }
         try:
@@ -179,13 +189,18 @@ class SlowLogMiddleware(object):
             pass
 
     def process_response(self, request, response):
-        try: self._response(request, response)
-        except: pass
+        try:
+            self._response(request, response)
+        except:
+            pass
         return response
 
     def process_exception(self, request, exception):
-        try: self._response(request, exception=exception)
-        except: pass
+        try:
+            self._response(request, exception=exception)
+        except:
+            pass
+
 
 if celery_enabled:
     @task
