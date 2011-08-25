@@ -179,7 +179,7 @@ class SlowLogMiddleware(object):
             'django_view': '%s.%s' % (view.__module__, view.__name__),
             'memory_delta': mem_delta,
             'load_delta': load_delta,
-            'queries': len(connection.queries),
+            'queries': connection.query_count,
             'hostname': hostname,
             'response_started': datetime.now(),
         }
