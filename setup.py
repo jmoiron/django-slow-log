@@ -38,7 +38,7 @@ setup(
     include_package_data=True,
     test_suite="tests",
     install_requires=[
-        'django',
+        # 'django',
       # -*- Extra requirements: -*-
     ],
     entry_points="""
