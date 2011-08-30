@@ -1,0 +1,83 @@
+From d627cb78d50a83071b335cdb27705ca8400a9d9c Mon Sep 17 00:00:00 2001
+From: Kyle Terry <kyle@kyleterry.com>
+Date: Wed, 24 Aug 2011 17:48:00 -0700
+Subject: [PATCH] Added query_count to the database backend. It's just a += 1 operation
+
+Added query_count = 0 to the reset_queries signal in db/__init__.py
+---
+ django/db/__init__.py                          |    1 +
+ django/db/backends/__init__.py                 |    1 +
+ django/db/backends/postgresql_psycopg2/base.py |   15 +++++++++++----
+ 3 files changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/django/db/__init__.py b/django/db/__init__.py
+index 4bae04a..7204ac8 100644
+--- a/django/db/__init__.py
++++ b/django/db/__init__.py
+@@ -87,6 +87,7 @@ signals.request_finished.connect(close_connection)
+ def reset_queries(**kwargs):
+     for conn in connections.all():
+         conn.queries = []
++        conn.query_count = 0
+ signals.request_started.connect(reset_queries)
+ 
+ # Register an event that rolls back the connections
+diff --git a/django/db/backends/__init__.py b/django/db/backends/__init__.py
+index 5918935..1822a9d 100644
+--- a/django/db/backends/__init__.py
++++ b/django/db/backends/__init__.py
+@@ -18,6 +18,7 @@ class BaseDatabaseWrapper(local):
+         # to disambiguate it from Django settings modules.
+         self.connection = None
+         self.queries = []
++        self.query_count = 0
+         self.settings_dict = settings_dict
+         self.alias = alias
+ 
+diff --git a/django/db/backends/postgresql_psycopg2/base.py b/django/db/backends/postgresql_psycopg2/base.py
+index 29b7e7f..cf6c80f 100644
+--- a/django/db/backends/postgresql_psycopg2/base.py
++++ b/django/db/backends/postgresql_psycopg2/base.py
+@@ -36,12 +36,16 @@ class CursorWrapper(object):
+     particular exception instances and reraise them with the right types.
+     """
+ 
+-    def __init__(self, cursor):
++    def __init__(self, cursor, db=None):
+         self.cursor = cursor
++        self.db = db
+ 
+     def execute(self, query, args=None):
+         try:
+-            return self.cursor.execute(query, args)
++            cursor_response = self.cursor.execute(query, args)
++            if self.db:
++                self.db.query_count += 1
++            return cursor_response
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+         except Database.DatabaseError, e:
+@@ -49,7 +53,10 @@ class CursorWrapper(object):
+ 
+     def executemany(self, query, args):
+         try:
+-            return self.cursor.executemany(query, args)
++            cursor_response = self.cursor.executemany(query, args)
++            if self.db:
++                self.db.query_count += 1
++            return cursor_response
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+         except Database.DatabaseError, e:
+@@ -158,7 +165,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
+                     # versions that support it, but, right now, that's hard to
+                     # do without breaking other things (#10509).
+                     self.features.can_return_id_from_insert = True
+-        return CursorWrapper(cursor)
++        return CursorWrapper(cursor, db=self)
+ 
+     def _enter_transaction_management(self, managed):
+         """
+-- 
+1.7.4.1
+
