@@ -11,6 +11,6 @@ class Record(models.Model):
     django_view = models.CharField(max_length=255)
     memory_delta = models.IntegerField()
     load_delta = models.FloatField()
-    queries = models.IntegerField()
+    queries = models.IntegerField(null=True, blank=True)
     hostname = models.CharField(max_length=255, null=True, blank=True)
     response_started = models.DateTimeField()
