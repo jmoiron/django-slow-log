@@ -61,7 +61,7 @@ class LoadAverage(object):
     uptime_fallback = False
 
     def __init__(self):
-        uptime_fallback = not os.path.exists('/proc/loadavg')
+        self.uptime_fallback = not os.path.exists('/proc/loadavg')
 
     def current(self):
         """Returns 3 floats, (1 min, 5 min, 15 min) load averages like
@@ -126,14 +126,10 @@ class MemoryStatus(object):
 
 
 class SlowLogMiddleware(object):
-    path = '/var/log/django-slow.log'
+
     disabled = False
 
     def __init__(self):
-        cls = SlowLogMiddleware
-        self.print_only = getattr(
-                settings, 'DJANGO_SLOW_LOG_PRINT_ONLY', False)
-        self.path = getattr(settings, 'DJANGO_SLOW_LOG_LOCATION', cls.path)
         if not getattr(self, 'pid', None):
             self.pid = os.getpid()
             self.pidstr = str(self.pid)
@@ -158,9 +154,6 @@ class SlowLogMiddleware(object):
             pass
 
     def _response(self, request, response=None, exception=None):
-        if not celery_enabled or not \
-            getattr(settings, 'OFFLOAD_SLOW_LOG', False):
-            return
         end = self._get_stats()
         start = self.start
         path = 'http://' + request.get_host() + request.get_full_path()
@@ -168,8 +161,15 @@ class SlowLogMiddleware(object):
         time_delta = end['time'] - start['time']
         mem_delta = end['memory'] - start['memory']
         load_delta = end['load'] - start['load']
-        view = urlresolvers.resolve(request.get_full_path())[0]
+        view = urlresolvers.resolve(request.path)[0]
         hostname = socket.gethostname()
+        if hasattr(connection, 'query_count'):
+            query_count = connection.query_count
+        else:
+            if settings.DEBUG == False:
+                query_count = len(connection.queries)
+            else:
+                query_count = None
         info = {
             'pid': self.pidstr,
             'status_code': status_code,
