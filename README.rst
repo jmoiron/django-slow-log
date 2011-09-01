@@ -23,15 +23,15 @@ Django 1.2.x fork, use the following steps:
 
 Take a look at the patch:
 
-    git apply --stat /path/to/slow/log/repo/patches/add_query_count_to_django_1.patch
+    git apply --stat /path/to/slow/log/repo/patches/add_query_count_to_django_1.x_core.patch
 
 Test the patch before applying it:
 
-    git apply --check /path/to/slow/log/repo/patches/add_query_count_to_django_1.patch
+    git apply --check /path/to/slow/log/repo/patches/add_query_count_to_django_1.x_core.patch
 
 Apply the patch if there aren't errors:
 
-    git am --signoff < /path/to/slow/log/repo/patches/add_query_count_to_django_1.patch
+    git am --signoff < /path/to/slow/log/repo/patches/add_query_count_to_django_1.x_core.patch
 
 If this patch is not applied, the queries field will be null unless django
 is running in DEBUG = True.
