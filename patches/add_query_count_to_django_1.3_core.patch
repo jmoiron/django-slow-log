@@ -1,0 +1,178 @@
+From 3490e43695710b60162a7c7b80a783c6b837885b Mon Sep 17 00:00:00 2001
+From: Kyle Terry <kyle@kyleterry.com>
+Date: Thu, 1 Sep 2011 15:15:58 -0700
+Subject: [PATCH] Added query_count to databasewrapper connections.
+
+query_count will increment on each execute|executemany method call
+query_count will be reset back to 0 on each request_start signal
+---
+ django/db/__init__.py                 |    1 +
+ django/db/backends/__init__.py        |    1 +
+ django/db/backends/mysql/base.py      |    9 +++++++--
+ django/db/backends/oracle/base.py     |   11 ++++++++---
+ django/db/backends/postgresql/base.py |    9 +++++++--
+ 5 files changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/django/db/__init__.py b/django/db/__init__.py
+index 3f9645a..830cbde 100644
+--- a/django/db/__init__.py
++++ b/django/db/__init__.py
+@@ -90,6 +90,7 @@ signals.request_finished.connect(close_connection)
+ def reset_queries(**kwargs):
+     for conn in connections.all():
+         conn.queries = []
++        conn.query_count = 0
+ signals.request_started.connect(reset_queries)
+ 
+ # Register an event that rolls back the connections
+diff --git a/django/db/backends/__init__.py b/django/db/backends/__init__.py
+index b7d0c8c..660a7e9 100644
+--- a/django/db/backends/__init__.py
++++ b/django/db/backends/__init__.py
+@@ -26,6 +26,7 @@ class BaseDatabaseWrapper(local):
+         # to disambiguate it from Django settings modules.
+         self.connection = None
+         self.queries = []
++        self.query_count = 0
+         self.settings_dict = settings_dict
+         self.alias = alias
+         self.use_debug_cursor = None
+diff --git a/django/db/backends/mysql/base.py b/django/db/backends/mysql/base.py
+index 98233c7..bcb7df8 100644
+--- a/django/db/backends/mysql/base.py
++++ b/django/db/backends/mysql/base.py
+@@ -78,11 +78,14 @@ class CursorWrapper(object):
+     """
+     codes_for_integrityerror = (1048,)
+ 
+-    def __init__(self, cursor):
++    def __init__(self, cursor, db=None):
+         self.cursor = cursor
++        self.db = db
+ 
+     def execute(self, query, args=None):
+         try:
++            if self.db:
++                self.db.query_count += 1
+             return self.cursor.execute(query, args)
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+@@ -97,6 +100,8 @@ class CursorWrapper(object):
+ 
+     def executemany(self, query, args):
+         try:
++            if self.db:
++                self.db.query_count += 1
+             return self.cursor.executemany(query, args)
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+@@ -323,7 +328,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
+             self.connection.encoders[SafeUnicode] = self.connection.encoders[unicode]
+             self.connection.encoders[SafeString] = self.connection.encoders[str]
+             connection_created.send(sender=self.__class__, connection=self)
+-        cursor = CursorWrapper(self.connection.cursor())
++        cursor = CursorWrapper(self.connection.cursor(), db=self)
+         return cursor
+ 
+     def _rollback(self):
+diff --git a/django/db/backends/oracle/base.py b/django/db/backends/oracle/base.py
+index b327e45..37e05bb 100644
+--- a/django/db/backends/oracle/base.py
++++ b/django/db/backends/oracle/base.py
+@@ -445,7 +445,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
+             if 'use_returning_into' in conn_params:
+                 del conn_params['use_returning_into']
+             self.connection = Database.connect(conn_string, **conn_params)
+-            cursor = FormatStylePlaceholderCursor(self.connection)
++            cursor = FormatStylePlaceholderCursor(self.connection, db=self)
+             # Set oracle date to ansi date format.  This only needs to execute
+             # once when we create a new connection. We also set the Territory
+             # to 'AMERICA' which forces Sunday to evaluate to a '1' in TO_CHAR().
+@@ -488,7 +488,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
+                 pass
+             connection_created.send(sender=self.__class__, connection=self)
+         if not cursor:
+-            cursor = FormatStylePlaceholderCursor(self.connection)
++            cursor = FormatStylePlaceholderCursor(self.connection, db=self)
+         return cursor
+ 
+     # Oracle doesn't support savepoint commits.  Ignore them.
+@@ -592,12 +592,13 @@ class FormatStylePlaceholderCursor(object):
+     """
+     charset = 'utf-8'
+ 
+-    def __init__(self, connection):
++    def __init__(self, connection, db=None):
+         self.cursor = connection.cursor()
+         # Necessary to retrieve decimal values without rounding error.
+         self.cursor.numbersAsStrings = True
+         # Default arraysize of 1 is highly sub-optimal.
+         self.cursor.arraysize = 100
++        self.db = db
+ 
+     def _format_params(self, params):
+         return tuple([OracleParam(p, self, True) for p in params])
+@@ -628,6 +629,8 @@ class FormatStylePlaceholderCursor(object):
+         query = convert_unicode(query % tuple(args), self.charset)
+         self._guess_input_sizes([params])
+         try:
++            if self.db:
++                self.db.query_count += 1
+             return self.cursor.execute(query, self._param_generator(params))
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+@@ -653,6 +656,8 @@ class FormatStylePlaceholderCursor(object):
+         formatted = [self._format_params(i) for i in params]
+         self._guess_input_sizes(formatted)
+         try:
++            if self.db:
++                self.db.query_count += 1
+             return self.cursor.executemany(query,
+                                 [self._param_generator(p) for p in formatted])
+         except Database.IntegrityError, e:
+diff --git a/django/db/backends/postgresql/base.py b/django/db/backends/postgresql/base.py
+index f3ac451..964823a 100644
+--- a/django/db/backends/postgresql/base.py
++++ b/django/db/backends/postgresql/base.py
+@@ -38,9 +38,10 @@ class UnicodeCursorWrapper(object):
+     All results retrieved from the database are converted into Unicode strings
+     before being returned to the caller.
+     """
+-    def __init__(self, cursor, charset):
++    def __init__(self, cursor, charset, db=None):
+         self.cursor = cursor
+         self.charset = charset
++        self.db = db
+ 
+     def format_params(self, params):
+         if isinstance(params, dict):
+@@ -54,6 +55,8 @@ class UnicodeCursorWrapper(object):
+ 
+     def execute(self, sql, params=()):
+         try:
++            if self.db:
++                self.db.query_count += 1
+             return self.cursor.execute(smart_str(sql, self.charset), self.format_params(params))
+         except Database.IntegrityError, e:
+             raise utils.IntegrityError, utils.IntegrityError(*tuple(e)), sys.exc_info()[2]
+@@ -62,6 +65,8 @@ class UnicodeCursorWrapper(object):
+ 
+     def executemany(self, sql, param_list):
+         try:
++            if self.db:
++                self.db.query_count += 1
+             new_param_list = [self.format_params(params) for params in param_list]
+             return self.cursor.executemany(sql, new_param_list)
+         except Database.IntegrityError, e:
+@@ -152,7 +157,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
+                 # No savepoint support for earlier version of PostgreSQL.
+                 self.features.uses_savepoints = False
+             cursor.execute("SET client_encoding to 'UNICODE'")
+-        return UnicodeCursorWrapper(cursor, 'utf-8')
++        return UnicodeCursorWrapper(cursor, 'utf-8', db=self)
+ 
+     def _commit(self):
+         if self.connection is not None:
+-- 
+1.7.4.1
+

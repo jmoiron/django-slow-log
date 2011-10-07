@@ -6,11 +6,7 @@
 from setuptools import setup, find_packages
 import sys, os
 
-try:
-    import django_slow_log
-    version = '.'.join(map(str, django_slow_log.VERSION))
-except:
-    version = '0.1'
+version = '0.1.3'
 
 # some trove classifiers:
 
@@ -42,7 +38,7 @@ setup(
     include_package_data=True,
     test_suite="tests",
     install_requires=[
-        'django',
+        # 'django',
       # -*- Extra requirements: -*-
     ],
     entry_points="""

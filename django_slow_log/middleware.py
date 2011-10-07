@@ -1,20 +1,27 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-
-"""Django slow log middleware."""
-
-from django.conf import settings
-from django.db import connection
-
 import os
 import re
 import time
-import logging
+import socket
+from datetime import datetime
 
-def open_file(path):
-    if not os.path.exists(os.path.split(path)[0]):
-        os.makedirs(os.path.split(path)[0])
-    return open(path, 'a')
+from django_slow_log.exceptions import SlowLogConfigurationError
+
+from django.conf import settings
+from django.db import connection
+from django.core import urlresolvers
+celery_enabled = True
+try:
+    from celery.decorators import task
+except ImportError:
+    if getattr(settings, 'OFFLOAD_SLOW_LOG', False):
+        raise SlowLogConfigurationError(
+                'Celery needs to be installed to use the offloader')
+    celery_enabled = False
+
+from django_slow_log.models import Record
+
 
 def to_bytes(string):
     """Converts a string with a human-readable byte size to a number of
@@ -26,6 +33,7 @@ def to_bytes(string):
         num <<= powers[units.lower()]
     return num
 
+
 def bytes_to_string(bytes):
     """Converts number of bytes to a string.  Based on old code here:
         http://dev.jmoiron.net/hg/weechat-plugins/file/tip/mp3.py
@@ -35,21 +43,25 @@ def bytes_to_string(bytes):
     """
     units = ['B', 'kB', 'mB', 'gB', 'tB']
     negate = bytes < 0
-    if negate: bytes = -bytes
+    if negate:
+        bytes = -bytes
     factor = 0
-    while bytes/(1024.0**(factor+1)) >= 1:
+    while bytes / (1024.0 ** (factor + 1)) >= 1:
         factor += 1
-    return '%s%0.1f %s' % ('-' if negate else '', bytes/(1024.0**factor), units[factor])
+    return '%s%0.1f %s' % \
+            ('-' if negate else '', bytes / (1024.0 ** factor), units[factor])
+
 
 class LoadAverage(object):
     """Fetch the current load average.  Uses /proc/loadavg in linux, falls back
     to executing the `uptime` command, which is 240x slower than reading
     from proc."""
-    matcher = re.compile("load average[s]?:\s*([.\d]+)[,]?\s*([.\d]+)[,]?\s*([.\d]+)")
+    matcher = re.compile(
+            "load average[s]?:\s*([.\d]+)[,]?\s*([.\d]+)[,]?\s*([.\d]+)")
     uptime_fallback = False
 
     def __init__(self):
-        uptime_fallback = not os.path.exists('/proc/loadavg')
+        self.uptime_fallback = not os.path.exists('/proc/loadavg')
 
     def current(self):
         """Returns 3 floats, (1 min, 5 min, 15 min) load averages like
@@ -102,7 +114,6 @@ class MemoryStatus(object):
         except:
             return self.ps_fallback_usage()
 
-
     def ps_fallback_usage(self):
         """Memory usage for the given PID using ps instead of proc."""
         from subprocess import Popen, PIPE
@@ -113,31 +124,24 @@ class MemoryStatus(object):
         vsize_in_kb = process_line[5] + ' kB'
         return to_bytes(vsize_in_kb)
 
+
 class SlowLogMiddleware(object):
-    path = '/var/log/django-slow.log'
+
     disabled = False
 
     def __init__(self):
-        cls = SlowLogMiddleware
-        self.print_only = getattr(settings, 'DJANGO_SLOW_LOG_PRINT_ONLY', False)
-        self.path = getattr(settings, 'DJANGO_SLOW_LOG_LOCATION', cls.path)
-        if not getattr(cls, 'fileobj', None) and not self.print_only:
-            try:self.fileobj = open_file(self.path)
-            except Exception, e:
-                logging.error("Slow log path or file `%s` not accessible (%s)" % (self.path, str(e)))
-                cls.disabled = True
         if not getattr(self, 'pid', None):
             self.pid = os.getpid()
-            self.pidstr = str(self.pid).ljust(5)
+            self.pidstr = str(self.pid)
             self.memory = MemoryStatus(self.pid)
         if not getattr(self, 'loadavg', None):
             self.loadavg = LoadAverage()
 
     def _get_stats(self):
         return {
-            'time' : time.time(),
-            'memory' : self.memory.usage(),
-            'load' : self.loadavg.current()[0],
+            'time': time.time(),
+            'memory': self.memory.usage(),
+            'load': self.loadavg.current()[0],
         }
 
     def process_request(self, request):
@@ -157,33 +161,49 @@ class SlowLogMiddleware(object):
         time_delta = end['time'] - start['time']
         mem_delta = end['memory'] - start['memory']
         load_delta = end['load'] - start['load']
-        info = [time.strftime('%Y/%m/%d %H:%M:%S'),
-                '<%s>' % self.pidstr,
-                '[%s]' % status_code,
-                '%0.2fs' % time_delta,
-                request.META['REQUEST_METHOD'],
-                path,
-                bytes_to_string(mem_delta),
-                '%0.2fl' % load_delta]
-        if settings.DEBUG:
-            queries = len(connection.queries)
-            info.append('%dq' % queries)
-        self.log(' '.join(info))
+        view = urlresolvers.resolve(request.path)[0]
+        hostname = socket.gethostname()
+        if hasattr(connection, 'query_count'):
+            query_count = connection.query_count
+        else:
+            if settings.DEBUG == False:
+                query_count = len(connection.queries)
+            else:
+                query_count = None
+        info = {
+            'pid': self.pidstr,
+            'status_code': status_code,
+            'time_delta': time_delta,
+            'request_method': request.META['REQUEST_METHOD'],
+            'path': path,
+            'django_view': '%s.%s' % (view.__module__, view.__name__),
+            'memory_delta': mem_delta,
+            'load_delta': load_delta,
+            'queries': query_count,
+            'hostname': hostname,
+            'response_started': datetime.now(),
+        }
+        try:
+            offload_slow_logging.delay(info)
+        except:
+            pass
 
     def process_response(self, request, response):
-        try: self._response(request, response)
-        except: pass
+        try:
+            self._response(request, response)
+        except:
+            pass
         return response
 
     def process_exception(self, request, exception):
-        try: self._response(request, exception=exception)
-        except: pass
+        try:
+            self._response(request, exception=exception)
+        except:
+            pass
 
-    def log(self, string):
-        if self.disabled and not self.print_only: return
-        if self.print_only:
-            print string
-            return
-        self.fileobj.write(string + '\n')
-        self.fileobj.flush()
 
+if celery_enabled:
+    @task
+    def offload_slow_logging(info):
+        record = Record(**info)
+        record.save()
